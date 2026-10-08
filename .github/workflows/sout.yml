@@ -1,0 +1,29 @@
+name: Meme Scout
+on:
+  schedule:
+    - cron: "*/5 * * * *"
+  workflow_dispatch:
+permissions:
+  contents: write
+concurrency: meme-scout
+jobs:
+  scan:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install requests
+      - run: python meme_scout_bot.py
+        env:
+          TG_BOT_TOKEN: ${{ secrets.TG_BOT_TOKEN }}
+          TG_CHAT_ID: ${{ secrets.TG_CHAT_ID }}
+          RUN_ONCE: "1"
+      - name: Save alerted coins
+        run: |
+          git config user.name "scout-bot"
+          git config user.email "scout-bot@users.noreply.github.com"
+          git add meme_scout_bot_state.json
+          git commit -m "update state" || exit 0
+          git push
