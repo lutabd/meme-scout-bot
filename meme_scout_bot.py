@@ -21,6 +21,7 @@ Setup:
 """
 
 import json
+import math
 import os
 import time
 from datetime import datetime, timezone
@@ -55,6 +56,8 @@ BO_MIN_MULTIPLE = 2.0       # market cap now ÷ middle of the range (2.0 = doubl
 BO_MIN_ABOVE_TOP = 1.25     # price now ÷ range top (1.25 = 25% above the top of the range)
 BO_MIN_VOLUME_SPIKE = 3.0   # last 2h volume vs the range's normal hourly volume
 BO_MAX_CHECKS = 10          # coins to inspect per scan (candle data has a rate limit)
+
+HEARTBEAT_HOURS = 6         # GitHub mode: "still running" summary in Telegram this often (0 = off)
 
 SCAN_EVERY_SECONDS = 300    # scan every 5 minutes
 STATE_FILE = "meme_scout_bot_state.json"
@@ -132,7 +135,7 @@ def tg_send(chat_id, text):
 
 
 def tg_poll_commands(state, last_scan_info):
-    """Handles /start (saves chat ID) and /status."""
+    """Reads new Telegram messages: /start, /status, /alert, /alerts, /remove, /help."""
     data = get_json(f"{TG}/getUpdates",
                     params={"offset": state.get("tg_offset", 0), "timeout": 0})
     if not data or not data.get("ok"):
@@ -143,7 +146,7 @@ def tg_poll_commands(state, last_scan_info):
         changed = True
         msg = upd.get("message") or {}
         chat = msg.get("chat", {})
-        text = (msg.get("text") or "").strip().lower()
+        text = (msg.get("text") or "").strip()
         if not chat:
             continue
         cid = str(chat["id"])
@@ -151,14 +154,49 @@ def tg_poll_commands(state, last_scan_info):
             state["chat_id"] = cid
             tg_send(cid, "✅ Meme Scout Bot connected.\n"
                          f"Screening Solana memes at {fmt_usd(MIN_MCAP)}–{fmt_usd(MAX_MCAP)} market cap "
-                         f"every {SCAN_EVERY_SECONDS // 60} min.\nSend /status anytime.")
+                         f"every {SCAN_EVERY_SECONDS // 60} min.\nSend /help to see commands.")
             print(f"  chat ID saved: {cid}")
-        elif cid == state["chat_id"] and text.startswith("/status"):
-            tg_send(cid, f"🟢 Running. Scans every {SCAN_EVERY_SECONDS // 60} min.\n"
-                         f"Last scan: {last_scan_info.get('text', 'not yet')}\n"
-                         f"Coins alerted so far: {len(state.get('alerted', {}))}")
+            continue
+        if cid != state["chat_id"]:
+            continue   # ignore anyone else who finds the bot
+        handle_command(state, text, last_scan_info)
     if changed:
         save_state(state)
+
+
+HELP_TEXT = (
+    "🔔 <b>Price alerts</b>\n"
+    "<code>/alert ADDRESS 500k</code> — alert when market cap reaches $500K\n"
+    "<code>/alert ADDRESS 500k 1m 150k</code> — several targets at once\n"
+    "<code>/alert ADDRESS above 2m</code> / <code>below 100k</code> — set the direction yourself\n"
+    "<code>/alert ADDRESS 0.00012</code> — use a price instead of market cap (any value under $1)\n"
+    "ADDRESS can be the contract address or a DexScreener link.\n\n"
+    "<code>/alerts</code> — list your alerts\n"
+    "<code>/remove 2</code> — remove alert #2 · <code>/remove all</code>\n"
+    "<code>/status</code> — is the bot running\n\n"
+    "Each alert fires once, then is removed."
+)
+
+
+def handle_command(state, text, last_scan_info):
+    words = text.split()
+    if not words:
+        return
+    cmd = words[0].lower().split("@")[0]
+    chat = state["chat_id"]
+    if cmd in ("/help", "/start"):
+        tg_send(chat, HELP_TEXT)
+    elif cmd == "/status":
+        tg_send(chat, f"🟢 Running.\nLast scan: {last_scan_info.get('text', 'see the 6-hour summary')}\n"
+                      f"Price alerts set: {len(state.get('price_alerts', []))}")
+    elif cmd == "/alert":
+        add_price_alerts(state, words[1:])
+    elif cmd == "/alerts":
+        list_price_alerts(state)
+    elif cmd == "/remove":
+        remove_price_alerts(state, words[1:])
+    else:
+        tg_send(chat, "I didn't get that. Send /help to see the commands.")
 
 
 # ───────────────────────── scanning ─────────────────────────
@@ -284,6 +322,204 @@ def alert_text(p, rc_text):
         f"<a href=\"https://rugcheck.xyz/tokens/{addr}\">RugCheck</a>\n"
         f"<i>Screen only, not advice — check rugcheck.xyz before buying.</i>"
     )
+
+
+# ───────────────────────── price alerts ─────────────────────────
+MAX_PRICE_ALERTS = 30
+
+
+def fmt_price(p):
+    p = float(p or 0)
+    if p <= 0:
+        return "$0"
+    if p >= 1:
+        return f"${p:,.2f}"
+    decimals = min(12, max(2, -int(math.floor(math.log10(p))) + 3))
+    return f"${p:.{decimals}f}"
+
+
+def best_pair_for_token(addr):
+    best = None
+    for p in get_json(f"{DEX}/tokens/v1/solana/{addr}") or []:
+        if p.get("baseToken", {}).get("address") != addr:
+            continue
+        liq = (p.get("liquidity") or {}).get("usd") or 0
+        if best is None or liq > ((best.get("liquidity") or {}).get("usd") or 0):
+            best = p
+    return best
+
+
+def resolve_token(text):
+    """Accepts a contract address or a DexScreener link; returns the token's best pair or None."""
+    x = text.strip().rstrip("/").split("?")[0].split("/")[-1]
+    if not (30 <= len(x) <= 50):
+        return None
+    pair = best_pair_for_token(x)
+    if pair:
+        return pair
+    d = get_json(f"{DEX}/latest/dex/pairs/solana/{x}") or {}
+    found = d.get("pair") or (d.get("pairs") or [None])[0]
+    if found and found.get("baseToken", {}).get("address"):
+        return best_pair_for_token(found["baseToken"]["address"]) or found
+    return None
+
+
+def parse_amount(s):
+    """'500k' -> (500000, True), '0.00012' -> (0.00012, False). Second value = has k/m/b suffix."""
+    s = s.lower().replace("$", "").replace(",", "")
+    mult = {"k": 1e3, "m": 1e6, "b": 1e9}
+    suffix = s[-1:] if s[-1:] in mult else ""
+    try:
+        v = float(s[:-1] if suffix else s)
+    except ValueError:
+        return None, False
+    return (v * mult[suffix] if suffix else v), bool(suffix)
+
+
+def add_price_alerts(state, args):
+    chat = state["chat_id"]
+    if len(args) < 2:
+        tg_send(chat, "Use: <code>/alert ADDRESS 500k</code>\nSend /help for more examples.")
+        return
+    pair = resolve_token(args[0])
+    if not pair:
+        tg_send(chat, "❌ I couldn't find that coin on Solana. Check the address or DexScreener link.")
+        return
+    alerts = state.setdefault("price_alerts", [])
+    bt = pair["baseToken"]
+    price = float(pair.get("priceUsd") or 0)
+    mcap = pair.get("marketCap") or pair.get("fdv") or 0
+    direction, lines = None, []
+    for w in args[1:]:
+        lw = w.lower()
+        if lw in ("above", ">", "over", "up"):
+            direction = "above"; continue
+        if lw in ("below", "<", "under", "down"):
+            direction = "below"; continue
+        if lw in ("mc", "mcap", "price"):
+            continue
+        value, has_suffix = parse_amount(w)
+        if value is None or value <= 0:
+            lines.append(f"❌ '{w}' isn't a number I understand")
+            continue
+        if has_suffix or value >= 1000:
+            kind, current = "mc", mcap
+        elif value < 1:
+            kind, current = "price", price
+        else:
+            lines.append(f"❌ '{w}': write market cap like 500k / 1.2m, or price like 0.00012")
+            continue
+        if not current:
+            lines.append("❌ No live price for this coin right now")
+            continue
+        d = direction or ("above" if value > current else "below")
+        if len(alerts) >= MAX_PRICE_ALERTS:
+            lines.append(f"❌ You already have {MAX_PRICE_ALERTS} alerts. Remove some with /remove")
+            break
+        aid = max([a["id"] for a in alerts], default=0) + 1
+        alerts.append({"id": aid, "token": bt["address"], "pair": pair.get("pairAddress", ""),
+                       "name": bt.get("name", "?"), "symbol": bt.get("symbol", "?"),
+                       "kind": kind, "dir": d, "target": value,
+                       "set_at": time.time(), "last_check": time.time()})
+        shown = fmt_usd(value) if kind == "mc" else fmt_price(value)
+        lines.append(f"✅ #{aid}: {'market cap' if kind == 'mc' else 'price'} {d} {shown}")
+    tg_send(chat, f"🔔 <b>{bt.get('name', '?')} (${bt.get('symbol', '?')})</b>\n"
+                  f"Now: MC {fmt_usd(mcap)} · price {fmt_price(price)}\n" + "\n".join(lines) +
+                  "\n<i>Checked every scan (about every 5–15 min).</i>")
+
+
+def list_price_alerts(state):
+    alerts = state.get("price_alerts", [])
+    if not alerts:
+        tg_send(state["chat_id"], "No price alerts set. Example: <code>/alert ADDRESS 500k</code>")
+        return
+    rows = []
+    for a in alerts:
+        shown = fmt_usd(a["target"]) if a["kind"] == "mc" else fmt_price(a["target"])
+        rows.append(f"#{a['id']} {a['name']} (${a['symbol']}) — "
+                    f"{'MC' if a['kind'] == 'mc' else 'price'} {a['dir']} {shown}")
+    tg_send(state["chat_id"], "🔔 <b>Your price alerts</b>\n" + "\n".join(rows) +
+            "\n\nRemove one with <code>/remove 2</code>")
+
+
+def remove_price_alerts(state, args):
+    alerts = state.get("price_alerts", [])
+    if not args:
+        tg_send(state["chat_id"], "Use <code>/remove 2</code> or <code>/remove all</code>. See /alerts.")
+        return
+    if args[0].lower() == "all":
+        state["price_alerts"] = []
+        tg_send(state["chat_id"], f"🗑 Removed all {len(alerts)} alerts.")
+        return
+    ids = {int(x.strip("#,")) for x in args if x.strip("#,").isdigit()}
+    keep = [a for a in alerts if a["id"] not in ids]
+    removed = len(alerts) - len(keep)
+    state["price_alerts"] = keep
+    tg_send(state["chat_id"], f"🗑 Removed {removed} alert(s)." if removed else
+            "No alert with that number. Send /alerts to see the numbers.")
+
+
+def price_range_since(pool, since_ts):
+    """Highest high and lowest low (USD price) from 5-minute candles since since_ts."""
+    if not pool:
+        return None, None
+    minutes = max(5, (time.time() - since_ts) / 60)
+    d = get_json(f"{GECKO}/networks/solana/pools/{pool}/ohlcv/minute",
+                 params={"aggregate": 5, "limit": min(200, int(minutes // 5) + 2),
+                         "currency": "usd", "token": "base"})
+    rows = (((d or {}).get("data") or {}).get("attributes") or {}).get("ohlcv_list") or []
+    rows = [r for r in rows if len(r) >= 6 and r[0] >= since_ts - 300]
+    if not rows:
+        return None, None
+    return max(float(r[2]) for r in rows), min(float(r[3]) for r in rows)
+
+
+def check_price_alerts(state):
+    """Fires alerts whose target was touched since the last check (uses candle highs/lows,
+    so a quick spike between scans still counts). Returns number fired."""
+    alerts = state.get("price_alerts", [])
+    if not alerts:
+        return 0
+    pairs = fetch_best_pairs(list({a["token"] for a in alerts}))
+    keep, fired = [], 0
+    for a in alerts:
+        p = pairs.get(a["token"])
+        if not p:
+            keep.append(a)
+            continue
+        price = float(p.get("priceUsd") or 0)
+        mcap = p.get("marketCap") or p.get("fdv") or 0
+        if price <= 0:
+            keep.append(a)
+            continue
+        hi, lo = price_range_since(a.get("pair") or p.get("pairAddress"), a["last_check"])
+        time.sleep(2.1)
+        hi = max(hi or price, price)
+        lo = min(lo or price, price)
+        to_mc = mcap / price if mcap else 0
+        if a["kind"] == "mc":
+            hi, lo = hi * to_mc, lo * to_mc
+        hit = hi >= a["target"] if a["dir"] == "above" else lo <= a["target"]
+        a["last_check"] = time.time()
+        if not hit:
+            keep.append(a)
+            continue
+        fired += 1
+        pc = p.get("priceChange") or {}
+        addr = a["token"]
+        shown = fmt_usd(a["target"]) if a["kind"] == "mc" else fmt_price(a["target"])
+        arrow = "📈" if a["dir"] == "above" else "📉"
+        tg_send(state["chat_id"],
+                f"🔔{arrow} <b>PRICE ALERT: {a['name']} (${a['symbol']})</b>\n"
+                f"{'Market cap' if a['kind'] == 'mc' else 'Price'} went {a['dir']} {shown}\n"
+                f"Now: MC <b>{fmt_usd(mcap)}</b> · price {fmt_price(price)}\n"
+                f"5m {pc.get('m5', 0):+.0f}% · 1h {pc.get('h1', 0):+.0f}% · 24h {pc.get('h24', 0):+.0f}%\n"
+                f"<code>{addr}</code>\n"
+                f"<a href=\"{p.get('url', '')}\">DexScreener</a> · "
+                f"<a href=\"https://rugcheck.xyz/tokens/{addr}\">RugCheck</a>\n"
+                f"<i>Alert #{a['id']} done. Set a new one with /alert.</i>")
+    state["price_alerts"] = keep
+    return fired
 
 
 # ───────────────────────── breakout detection ─────────────────────────
@@ -439,6 +675,36 @@ def scan(state, last_scan_info):
                               f"{sent} scout + {bo_sent} breakout alerts")
     print(f"[{stamp}] scanned {len(pairs)} tokens, {len(fresh)} passed, "
           f"{sent} scout alerts, {bo_sent} breakout alerts")
+    return len(pairs), sent, bo_sent
+
+
+def heartbeat(state, checked, scout_sent, bo_sent):
+    """Counts scans and every HEARTBEAT_HOURS sends a short 'still running' summary."""
+    if not HEARTBEAT_HOURS:
+        return
+    hb = state.setdefault("heartbeat", {"last": 0, "scans": 0, "checked": 0,
+                                        "scout": 0, "breakout": 0, "empty": 0})
+    hb["scans"] += 1
+    hb["checked"] += checked
+    hb["scout"] += scout_sent
+    hb["breakout"] += bo_sent
+    if checked == 0:
+        hb["empty"] += 1
+    now = time.time()
+    if now - hb["last"] < HEARTBEAT_HOURS * 3600:
+        return
+    first = hb["last"] == 0
+    period = "since the update" if first else f"in the last {HEARTBEAT_HOURS}h"
+    warn = ""
+    if hb["empty"] and hb["empty"] >= hb["scans"] / 2:
+        warn = "\n⚠️ Many scans got no market data (sites may be limiting requests)."
+    tg_send(state["chat_id"],
+            f"🟢 <b>Bot running</b> — {period}:\n"
+            f"Scans: {hb['scans']} · Coins checked: {hb['checked']:,}\n"
+            f"Alerts: {hb['scout']} scout · {hb['breakout']} breakout{warn}\n"
+            f"Next update in about {HEARTBEAT_HOURS}h.")
+    state["heartbeat"] = {"last": now, "scans": 0, "checked": 0,
+                          "scout": 0, "breakout": 0, "empty": 0}
 
 
 def run_once():
@@ -451,7 +717,10 @@ def run_once():
                          f"Screening Solana memes at {fmt_usd(MIN_MCAP)}–{fmt_usd(MAX_MCAP)} market cap "
                          "every few minutes. New coins will appear here.")
         state["welcomed"] = True
-    scan(state, {})
+    tg_poll_commands(state, {})          # read /alert, /alerts, /remove sent since last run
+    check_price_alerts(state)
+    checked, scout_sent, bo_sent = scan(state, {})
+    heartbeat(state, checked, scout_sent, bo_sent)
     save_state(state)
 
 
@@ -501,6 +770,7 @@ def main():
         tg_poll_commands(state, last_scan_info)
         if state.get("chat_id") and time.time() >= next_scan:
             try:
+                check_price_alerts(state)
                 scan(state, last_scan_info)
             except Exception as e:
                 print(f"  scan error: {e}")
