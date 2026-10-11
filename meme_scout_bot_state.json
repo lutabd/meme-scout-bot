@@ -28,8 +28,8 @@
   },
   "heartbeat": {
     "last": 1791666048.8461769,
-    "scans": 0,
-    "checked": 0,
+    "scans": 1,
+    "checked": 147,
     "scout": 0,
     "breakout": 0,
     "empty": 0
