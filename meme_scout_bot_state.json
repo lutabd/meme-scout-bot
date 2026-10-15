@@ -46,11 +46,11 @@
     "HQgMPJbGctpP9P27DdJW5f8rncz7gvg4vEL3hT7hpump": 1792014633.6275015
   },
   "heartbeat": {
-    "last": 1792002388.1386433,
-    "scans": 2,
-    "checked": 341,
-    "scout": 2,
-    "breakout": 1,
+    "last": 1792038544.0534256,
+    "scans": 0,
+    "checked": 0,
+    "scout": 0,
+    "breakout": 0,
     "empty": 0
   }
 }
