@@ -51,7 +51,9 @@
     "6x4Z2dr5DgHUBCKvta8T8GNsFTxJhsBZxNrycWQ8pump": 1792272690.2713776,
     "5ubruMYpgKqw9ip5J1qrXbVGmMdn2VCsMg421B4bpump": 1792279176.990074,
     "CY27QvCQBCmLBuz3V7c8snEeD4z67iyoSTkwo35Ypump": 1792285834.8909986,
-    "2bCCHQadi4QeHWPKG3w13siCyWWQPgkFtniouTqVpump": 1792317462.1516201
+    "2bCCHQadi4QeHWPKG3w13siCyWWQPgkFtniouTqVpump": 1792317462.1516201,
+    "55A3VxMBfzw6uSe64zms5iMPw9k6kx9WzzusbCU6pump": 1792330888.4496784,
+    "AcV6CcpMGFrA1dhRFiCKNiVNje8QE6ZXR9ep9jh7pump": 1792330889.626291
   },
   "tg_offset": 0,
   "welcomed": true,
@@ -60,10 +62,10 @@
     "HQgMPJbGctpP9P27DdJW5f8rncz7gvg4vEL3hT7hpump": 1792014633.6275015
   },
   "heartbeat": {
-    "last": 1792302647.1541362,
-    "scans": 1,
-    "checked": 152,
-    "scout": 1,
+    "last": 1792330890.347705,
+    "scans": 0,
+    "checked": 0,
+    "scout": 0,
     "breakout": 0,
     "empty": 0
   }
