@@ -92,7 +92,8 @@
     "5QREAgtfP1NkuymRaFdHxr5QNF2Yry9M1YCyaompump": 1792952170.4549987,
     "7SL2VnfYsChvog5oQY9Nmtqu1wceaMiQzWoqoLQpump": 1792952171.6506965,
     "3p4LAKKCcsiBF5nuYYqLu8mJpfXStQJMk2LYubM3pump": 1792992145.0501533,
-    "3LPTanzycRAjguU6VAXE7T2Fd12LePQLpHATXXs9pump": 1792992146.0651374
+    "3LPTanzycRAjguU6VAXE7T2Fd12LePQLpHATXXs9pump": 1792992146.0651374,
+    "EdSuZVh4ypz8cUqgi1Rjo1SE88wrRahPg85KStdpump": 1793050999.0913086
   },
   "tg_offset": 0,
   "welcomed": true,
@@ -106,9 +107,9 @@
   },
   "heartbeat": {
     "last": 1793035525.6694078,
-    "scans": 0,
-    "checked": 0,
-    "scout": 0,
+    "scans": 1,
+    "checked": 155,
+    "scout": 1,
     "breakout": 0,
     "empty": 0
   }
