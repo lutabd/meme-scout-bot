@@ -114,7 +114,8 @@
     "3w2TvVmTrtq4kSkoFVrTFQgz6MX7ThzDVrx9r5c3pump": 1793315936.7796,
     "ANVLA6eKiAq4nstD2Sg3SZhfVkSEwfnGccn12UQWpump": 1793315937.861091,
     "2q68mqEbjwmnMjs1o3KZDNZVyMv6RZKkHcm64iinpump": 1793328049.5546725,
-    "GydpvgKppv8a4gGQqAQsyQJxtQN4S6Ym9gKxjnN3mfun": 1793350719.0320873
+    "GydpvgKppv8a4gGQqAQsyQJxtQN4S6Ym9gKxjnN3mfun": 1793350719.0320873,
+    "2fnGKgfwYjqv99ppnKCq5nCLLhRSJAPAhSMVkqjipump": 1793390376.457644
   },
   "tg_offset": 0,
   "welcomed": true,
@@ -125,14 +126,15 @@
     "CBLx6CRcCTtbmgTdxpqnF2dP1MpWbMUjngtNbFTApump": 1792579229.0595603,
     "55A3VxMBfzw6uSe64zms5iMPw9k6kx9WzzusbCU6pump": 1792622349.3788493,
     "7JJvLXiP5kiVsBsoGRJeqAhLEmHycA4hmC3oa5Fbpump": 1792707890.199613,
-    "6d9fD5SxvN4DAG4SHQD8pebm8TM6XeSbYezPDjdapump": 1793281656.9579744
+    "6d9fD5SxvN4DAG4SHQD8pebm8TM6XeSbYezPDjdapump": 1793281656.9579744,
+    "2fnGKgfwYjqv99ppnKCq5nCLLhRSJAPAhSMVkqjipump": 1793390374.9178839
   },
   "heartbeat": {
     "last": 1793374218.8032928,
-    "scans": 0,
-    "checked": 0,
-    "scout": 0,
-    "breakout": 0,
+    "scans": 1,
+    "checked": 178,
+    "scout": 1,
+    "breakout": 1,
     "empty": 0
   }
 }
