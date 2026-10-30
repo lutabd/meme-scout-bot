@@ -130,11 +130,11 @@
     "2fnGKgfwYjqv99ppnKCq5nCLLhRSJAPAhSMVkqjipump": 1793390374.9178839
   },
   "heartbeat": {
-    "last": 1793374218.8032928,
-    "scans": 1,
-    "checked": 178,
-    "scout": 1,
-    "breakout": 1,
+    "last": 1793402900.8616116,
+    "scans": 0,
+    "checked": 0,
+    "scout": 0,
+    "breakout": 0,
     "empty": 0
   }
 }
